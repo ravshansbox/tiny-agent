@@ -13,17 +13,19 @@ type ToolInput = {
   options?: { cwd?: string; env?: NodeJS.ProcessEnv; timeout?: number };
 };
 
-type ToolLogEntry = {
-  name: string;
-  input: ToolInput;
-  output: string;
-};
+type ToolLogEntry = { name: string; input: ToolInput; output: string };
 
 const apiKey = process.env.ANTHROPIC_AUTH_TOKEN;
 const baseURL = process.env.ANTHROPIC_BASE_URL;
+const model = process.env.ANTHROPIC_MODEL;
 
 if (!apiKey) {
   process.stderr.write('Missing ANTHROPIC_AUTH_TOKEN\n');
+  process.exit(1);
+}
+
+if (!model) {
+  process.stderr.write('Missing ANTHROPIC_MODEL\n');
   process.exit(1);
 }
 
@@ -111,14 +113,17 @@ const runTool = async (name: string, input: ToolInput) => {
     return readFile(requireString(input.filePath, 'filePath'));
   }
   if (name === 'writeFile') {
-    await writeFile(requireString(input.filePath, 'filePath'), requireString(input.content, 'content'));
+    await writeFile(
+      requireString(input.filePath, 'filePath'),
+      requireString(input.content, 'content'),
+    );
     return 'ok';
   }
   if (name === 'editFile') {
     await editFile(
       requireString(input.filePath, 'filePath'),
       requireString(input.oldText, 'oldText'),
-      requireString(input.newText, 'newText')
+      requireString(input.newText, 'newText'),
     );
     return 'ok';
   }
@@ -127,11 +132,14 @@ const runTool = async (name: string, input: ToolInput) => {
   }
   if (name === 'searchInFiles') {
     const pattern = requireString(input.pattern, 'pattern');
-    return typeof input.dirPath === 'string' ? searchInFiles(pattern, input.dirPath) : searchInFiles(pattern);
+    return typeof input.dirPath === 'string'
+      ? searchInFiles(pattern, input.dirPath)
+      : searchInFiles(pattern);
   }
   if (name === 'runCommand') {
     const command = requireString(input.command, 'command');
-    const options = typeof input.options === 'object' && input.options !== null ? input.options : undefined;
+    const options =
+      typeof input.options === 'object' && input.options !== null ? input.options : undefined;
     return runCommand(command, options);
   }
   throw new Error(`Unknown tool: ${name}`);
@@ -141,14 +149,14 @@ const runWithTools = async (prompt: string, onToolLog: (entry: ToolLogEntry) => 
   const messages: Anthropic.Messages.MessageParam[] = [{ role: 'user', content: prompt }];
   for (let i = 0; i < 6; i += 1) {
     const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20240620',
+      model,
       max_tokens: 512,
       system: systemPrompt,
       tools,
       messages,
     });
     const toolUses = response.content.filter(
-      (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use'
+      (block): block is Anthropic.Messages.ToolUseBlock => block.type === 'tool_use',
     );
     if (toolUses.length === 0) {
       const text = response.content
@@ -165,7 +173,10 @@ const runWithTools = async (prompt: string, onToolLog: (entry: ToolLogEntry) => 
       onToolLog({ name: toolUse.name, input: toolInput, output: content });
       toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content });
     }
-    messages.push({ role: 'assistant', content: response.content as Anthropic.Messages.ContentBlockParam[] });
+    messages.push({
+      role: 'assistant',
+      content: response.content as Anthropic.Messages.ContentBlockParam[],
+    });
     messages.push({ role: 'user', content: toolResults });
   }
   return 'Tool loop limit reached';
